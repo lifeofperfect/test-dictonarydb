@@ -46,6 +46,26 @@ public sealed class MeteringApplicationService
         _readings.Save(new MeterReading(meterId, period, valueKwh));
     }
 
+    public void CorrectReading(string meterId, int month, decimal correctedValueKwh)
+    {
+        CorrectReading(meterId, BillingPeriod.FromMonthOnly(month), correctedValueKwh);
+    }
+
+    public void CorrectReading(string meterId, int year, int month, decimal correctedValueKwh)
+    {
+        CorrectReading(meterId, new BillingPeriod(year, month), correctedValueKwh);
+    }
+
+    public void CorrectReading(string meterId, BillingPeriod period, decimal correctedValueKwh)
+    {
+        ValidateRequired(meterId, nameof(meterId));
+
+        if (correctedValueKwh < 0)
+            throw new ArgumentException("Reading cannot be negative.", nameof(correctedValueKwh));
+
+        _readings.Replace(new MeterReading(meterId, period, correctedValueKwh));
+    }
+
     public MeterReading? GetReading(string meterId, int month)
     {
         return GetReading(meterId, BillingPeriod.FromMonthOnly(month));
@@ -75,18 +95,88 @@ public sealed class MeteringApplicationService
 
     public decimal GetMeterConsumption(string meterId, BillingPeriod period)
     {
+        var result = GetMeterConsumptionResult(meterId, period);
+
+        if (result.Status != ConsumptionStatus.Calculated)
+            throw new InvalidOperationException(result.ErrorMessage);
+
+        return result.ConsumptionKwh!.Value;
+    }
+
+    public ConsumptionResult GetMeterConsumptionResult(string meterId, int month)
+    {
+        return GetMeterConsumptionResult(meterId, BillingPeriod.FromMonthOnly(month));
+    }
+
+    public ConsumptionResult GetMeterConsumptionResult(string meterId, int year, int month)
+    {
+        return GetMeterConsumptionResult(meterId, new BillingPeriod(year, month));
+    }
+
+    public ConsumptionResult GetMeterConsumptionResult(string meterId, BillingPeriod period)
+    {
         ValidateRequired(meterId, nameof(meterId));
 
         var current = _readings.Get(meterId, period);
         var previous = _readings.Get(meterId, period.Previous());
 
         if (current is null)
-            throw new InvalidOperationException("Current reading is missing.");
+            return ConsumptionResult.Failed(
+                ConsumptionStatus.CurrentReadingMissing,
+                "Current reading is missing.");
 
         if (previous is null)
-            throw new InvalidOperationException("Previous reading is missing.");
+            return ConsumptionResult.Failed(
+                ConsumptionStatus.PreviousReadingMissing,
+                "Previous reading is missing.");
 
-        return _consumptionCalculator.Calculate(current, previous);
+        try
+        {
+            return ConsumptionResult.Calculated(_consumptionCalculator.Calculate(current, previous));
+        }
+        catch (InvalidOperationException exception)
+        {
+            if (exception.Message == "Reading cannot go backwards.")
+            {
+                return ConsumptionResult.Failed(
+                    ConsumptionStatus.ReadingWentBackwards,
+                    exception.Message);
+            }
+
+            throw;
+        }
+    }
+
+    public decimal GetMeterConsumptionForPeriod(string meterId, int fromYear, int fromMonth, int toYear, int toMonth)
+    {
+        return GetMeterConsumptionForPeriod(
+            meterId,
+            new BillingPeriod(fromYear, fromMonth),
+            new BillingPeriod(toYear, toMonth));
+    }
+
+    public decimal GetMeterConsumptionForPeriod(string meterId, BillingPeriod fromPeriod, BillingPeriod toPeriod)
+    {
+        ValidateRequired(meterId, nameof(meterId));
+
+        if (toPeriod.CompareTo(fromPeriod) <= 0)
+            throw new ArgumentException("To period must be after from period.");
+
+        var start = _readings.Get(meterId, fromPeriod);
+        var end = _readings.Get(meterId, toPeriod);
+
+        if (start is null)
+            throw new InvalidOperationException("Start reading is missing.");
+
+        if (end is null)
+            throw new InvalidOperationException("End reading is missing.");
+
+        var consumption = end.ValueKwh - start.ValueKwh;
+
+        if (consumption < 0)
+            throw new InvalidOperationException("Reading cannot go backwards.");
+
+        return consumption;
     }
 
     public decimal GetCustomerConsumption(string customerId, int month)

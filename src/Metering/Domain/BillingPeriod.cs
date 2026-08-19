@@ -1,6 +1,6 @@
 namespace Metering.Domain;
 
-public sealed record BillingPeriod
+public sealed record BillingPeriod : IComparable<BillingPeriod>
 {
     public const int DefaultYear = 1;
 
@@ -30,5 +30,18 @@ public sealed record BillingPeriod
             return new BillingPeriod(Year - 1, 12);
 
         return new BillingPeriod(Year, Month - 1);
+    }
+
+    public int CompareTo(BillingPeriod? other)
+    {
+        if (other is null)
+            return 1;
+
+        var yearComparison = Year.CompareTo(other.Year);
+
+        if (yearComparison != 0)
+            return yearComparison;
+
+        return Month.CompareTo(other.Month);
     }
 }

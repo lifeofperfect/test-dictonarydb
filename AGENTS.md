@@ -43,7 +43,10 @@ Treat `Metering` as the current business boundary. Avoid extra folders such as `
 - `BillingPeriod` contains `Year + Month`.
 - Consumption is derived from readings.
 - Monthly consumption is `current reading - previous period reading`.
+- Period consumption can be calculated from a start reading and an end reading.
 - A reading cannot go backwards for the same meter across consecutive periods.
+- Duplicate reading submissions for the same meter and period are rejected.
+- Corrections must be explicit through correction behavior.
 - Use `decimal` for kWh and billing-style values.
 - Use `HashSet<string>` for customer meters to prevent duplicate meter registration and double-counting.
 
@@ -67,7 +70,6 @@ When requirements are ambiguous:
 
 Avoid implementing future requirements before they are asked for:
 
-- Reading corrections
 - Estimated readings
 - Invoice snapshots
 - VAT or standing charges

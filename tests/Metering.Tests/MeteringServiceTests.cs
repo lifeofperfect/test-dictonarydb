@@ -63,6 +63,45 @@ public sealed class MeteringServiceTests
     }
 
     [Fact]
+    public void RejectsDuplicateReadingForSameMeterAndPeriod()
+    {
+        var service = CreateService();
+
+        service.SubmitReading("meter-1", 2026, 1, 100m);
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            service.SubmitReading("meter-1", 2026, 1, 120m));
+
+        Assert.Equal("Reading already exists for this meter and period.", exception.Message);
+    }
+
+    [Fact]
+    public void CanCorrectExistingReading()
+    {
+        var service = CreateService();
+
+        service.SubmitReading("meter-1", 2026, 1, 100m);
+        service.SubmitReading("meter-1", 2026, 2, 160m);
+
+        service.CorrectReading("meter-1", 2026, 2, 155m);
+
+        var consumption = service.GetMeterConsumption("meter-1", 2026, 2);
+
+        Assert.Equal(55m, consumption);
+    }
+
+    [Fact]
+    public void CannotCorrectMissingReading()
+    {
+        var service = CreateService();
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            service.CorrectReading("meter-1", 2026, 1, 100m));
+
+        Assert.Equal("Cannot correct a reading that does not exist.", exception.Message);
+    }
+
+    [Fact]
     public void CalculatesMeterConsumptionFromCurrentAndPreviousReadings()
     {
         var service = CreateService();
@@ -73,6 +112,30 @@ public sealed class MeteringServiceTests
         var consumption = service.GetMeterConsumption("meter-1", 2);
 
         Assert.Equal(60m, consumption);
+    }
+
+    [Fact]
+    public void CalculatesMeterConsumptionForPeriod()
+    {
+        var service = CreateService();
+
+        service.SubmitReading("meter-1", 2026, 1, 100m);
+        service.SubmitReading("meter-1", 2026, 4, 250m);
+
+        var consumption = service.GetMeterConsumptionForPeriod("meter-1", 2026, 1, 2026, 4);
+
+        Assert.Equal(150m, consumption);
+    }
+
+    [Fact]
+    public void PeriodConsumptionRequiresEndPeriodAfterStartPeriod()
+    {
+        var service = CreateService();
+
+        var exception = Assert.Throws<ArgumentException>(() =>
+            service.GetMeterConsumptionForPeriod("meter-1", 2026, 4, 2026, 1));
+
+        Assert.Equal("To period must be after from period.", exception.Message);
     }
 
     [Fact]
@@ -89,6 +152,20 @@ public sealed class MeteringServiceTests
     }
 
     [Fact]
+    public void CanReturnConsumptionResultWhenPreviousReadingIsMissing()
+    {
+        var service = CreateService();
+
+        service.SubmitReading("meter-1", 2026, 2, 160m);
+
+        var result = service.GetMeterConsumptionResult("meter-1", 2026, 2);
+
+        Assert.Equal(ConsumptionStatus.PreviousReadingMissing, result.Status);
+        Assert.Null(result.ConsumptionKwh);
+        Assert.Equal("Previous reading is missing.", result.ErrorMessage);
+    }
+
+    [Fact]
     public void ReadingCannotGoBackwards()
     {
         var service = CreateService();
@@ -100,6 +177,21 @@ public sealed class MeteringServiceTests
             service.GetMeterConsumption("meter-1", 2));
 
         Assert.Equal("Reading cannot go backwards.", exception.Message);
+    }
+
+    [Fact]
+    public void CanReturnConsumptionResultWhenReadingGoesBackwards()
+    {
+        var service = CreateService();
+
+        service.SubmitReading("meter-1", 2026, 1, 200m);
+        service.SubmitReading("meter-1", 2026, 2, 150m);
+
+        var result = service.GetMeterConsumptionResult("meter-1", 2026, 2);
+
+        Assert.Equal(ConsumptionStatus.ReadingWentBackwards, result.Status);
+        Assert.Null(result.ConsumptionKwh);
+        Assert.Equal("Reading cannot go backwards.", result.ErrorMessage);
     }
 
     [Fact]
